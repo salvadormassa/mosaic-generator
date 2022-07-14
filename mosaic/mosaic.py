@@ -25,7 +25,6 @@ def get_input():
     """
     Gets user input for artist name.
     """
-
     while True:
         user_input = input().lower().strip()
         if user_input == "":
@@ -41,7 +40,6 @@ def download_image(url):
     Downloads an image from url.
     Returns the file name.
     """
-
     filename = url.split("/")[-1]
     r = requests.get(url, stream = True)
     # Check if the image was retrieved successfully
@@ -65,7 +63,6 @@ def get_portrait(url):
     Take user input of an artist and finds a self portrait of that artist.
     If there are more than one self portrait, picks a random one.
     """
-
     portrait_url = "https://www.wga.hu/art/{}"
     try:
         response = requests.get(url)
@@ -124,7 +121,6 @@ def download_thumbnails(url, pathname):
     """
     Downloads the thumbnail image.
     """
-
     response = requests.get(url)
     filename = os.path.join(pathname, url.split("/")[-1])
 
@@ -137,7 +133,6 @@ def chunk():
     Takes an image and splits it into 1024 (arbitrary) pieces.
     Then run get_rgb() on each piece.
     """
-
     im_dict = {}
     with Image.open(infile).convert("RGB") as im:
         # print(im.size)
@@ -163,7 +158,6 @@ def create_thumbnail():
     Creates a thumbnail of a JPEG,
     preserving aspect ratios with 128x128 max resolution.
     """
-
     infile = "Monet_Veduta_di_Rouelles.jpg"
     size = 128, 128
 
@@ -180,7 +174,6 @@ def get_rgb(img_object):
     Generate a 3 tuple numerical value (red, green, blue)
     for each pixel in an image and returns the average value.
     """
-
     rgb_list = list(img_object.getdata())
     pixels = len(rgb_list)
     r, g, b = 0, 0, 0
