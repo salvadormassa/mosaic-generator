@@ -124,6 +124,8 @@ def download_thumbnails(url, pathname):
     response = requests.get(url)
     filename = os.path.join(pathname, url.split("/")[-1])
 
+
+    # This is very slow, needs to be faster.
     with open(filename, "wb") as file:
         file.write(response.content)
 
@@ -201,15 +203,17 @@ def main():
     elif len(sys.argv) == 1:
         print("Name an artist to create a mosaic of: ", end="")
         user_input = get_input()
+
         artist_name = artist_name+user_input
         url = url.format(artist_name, title+"self+portrait")
         pathname = cur_dir+"/images/"+user_input.replace("+", "_")
-        print(pathname)
         filename = get_portrait(url)
 
         thumbnail_list = get_thumbnail_urls(url)
         for url in thumbnail_list:
             download_thumbnail(url, pathname)
+
+
 
 
     # If 1 CLA is given, that CLA is for a local image to
