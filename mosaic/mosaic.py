@@ -10,7 +10,6 @@ import wget
 import json
 import re
 import sys
-from tqdm import tqdm
 # Beautiful Soup is a Python library for pulling data out of HTML and XML files.
 from bs4 import BeautifulSoup as bs
 from urllib.parse import urljoin, urlparse
@@ -28,7 +27,7 @@ def get_input():
     """
 
     while True:
-        user_input = input("Name an artist to create a mosaic of: ").lower().strip()
+        user_input = input().lower().strip()
         if user_input == "":
             continue
         artist_name = user_input.replace(" ", "+")
@@ -68,30 +67,69 @@ def get_portrait(url):
     """
 
     portrait_url = "https://www.wga.hu/art/{}"
-    while True:
-        try:
-            response = requests.get(url)
-            # If the response was successful, no Exception will be raised
-            response.raise_for_status()
-        except HTTPError as http_err:
-            print(f'HTTP error occurred: {http_err}')
-        except Exception as err:
-            print(f'Other error occurred: {err}')
+    try:
+        response = requests.get(url)
+        # If the response was successful, no Exception will be raised
+        response.raise_for_status()
+    except HTTPError as http_err:
+        print(f'HTTP error occurred: {http_err}')
+    except Exception as err:
+        print(f'Other error occurred: {err}')
 
-        soup = str(bs(requests.get(url).content, "html.parser"))
-        regex = r'href="\/art\/([\/\w\.]*)"'
+    soup = str(bs(requests.get(url).content, "html.parser"))
+    regex = r'href="\/art\/([\/\w\.]*)"'
 
-        # Check if any portraits are found.
-        try:
-            self_portrait = choice(re.findall(regex, soup))
-            break
-        except IndexError:
-            sys.exit("No portraits found.")
+    # Check if any portraits are found.
+    try:
+        self_portrait = choice(re.findall(regex, soup))
+    except IndexError:
+        sys.exit("No portraits found.")
 
     portrait_url = portrait_url.format(self_portrait)
     filename = download_image(portrait_url)
 
     return filename
+
+def valid_url(url):
+    """
+    Checks if a url is valid.
+    """
+    parsed = urlparse(url)
+    return bool(parsed.netloc) and bool(parsed.scheme)
+
+def get_thumbnail_urls(url):
+    """
+    Returns all image URLs in a list.
+    """
+    soup = bs(requests.get(url).content, "html.parser")
+
+    url_list = []
+    for img in soup.find_all("img", src=re.compile('.*\.jpg', re.IGNORECASE)):
+        img_url = img.get("src")
+
+        # If img does not contain src attribute, then skip.
+        if not img_url:
+            continue
+
+        # Takes the url and cuts off the "base" component,
+        # then attaches it to the image url.
+        img_url = urljoin(url, img_url)
+
+        if valid_url(img_url):
+            url_list.append(img_url)
+    print(len(url_list))
+    return url_list
+
+def download_thumbnails(url, pathname):
+    """
+    Downloads the thumbnail image.
+    """
+
+    response = requests.get(url)
+    filename = os.path.join(pathname, url.split("/")[-1])
+
+    with open(filename, "wb") as file:
+        file.write(response.content)
 
 
 def chunk():
@@ -155,6 +193,7 @@ def get_rgb(img_object):
 
 
 def main():
+    cur_dir = os.getcwd()
     artist_name = "author="
     title = "title="
     url = "https://www.wga.hu/cgi-bin/search.cgi?{}&{}&comment=&time=any&school=any&form=any&type=any&location=&max=1000&format=5"
@@ -167,26 +206,40 @@ def main():
     # Program will ask for user input for an artist,
     # then generate a mosaic of a portrait of that artist.
     elif len(sys.argv) == 1:
-        artist_name = artist_name+get_input()
-        title = title+"self+portrait"
-        url = url.format(artist_name, title)
+        print("Name an artist to create a mosaic of: ", end="")
+        user_input = get_input()
+        artist_name = artist_name+user_input
+        url = url.format(artist_name, title+"self+portrait")
+        pathname = cur_dir+"/images/"+user_input.replace("+", "_")
+        print(pathname)
         filename = get_portrait(url)
 
-        # add get_thumbnails()
+        thumbnail_list = get_thumbnail_urls(url)
+        for url in thumbnail_list:
+            download_thumbnail(url, pathname)
+
 
     # If 1 CLA is given, that CLA is for a local image to
     # be made into a mosaic
     elif len(sys.argv) == 2:
-        if not os.path.exists(sys.argv[1]):
-            sys.exit(f"Could not find {sys.argv[2]}.")
+        file = cur_dir+"/"+sys.argv[1]
+        if not os.path.exists(file):
+            sys.exit(f"Could not find {sys.argv[1]}.")
 
-        # add get_thumbnails()
+        user_input = input("Which artist's works would you like? ")
+        artist_name = artist_name+get_input()
+        url = url.format(artist_name, title)
+
+        thumbnails = get_thumbnail_urls(url)
+        for img in imgs:
+            download_thumbnail(img, path)
 
 
     # If 2 command line arguments are given.
     # First CLA is the image that will be made into a mosaic.
     # Second CLA is the thumbnail database.
     elif len(sys.argv) == 3:
+
         if not os.path.exists(sys.argv[2]):
             sys.exit(f"Could not find {sys.argv[1]}.")
         if not os.path.exists(sys.argv[3]):
