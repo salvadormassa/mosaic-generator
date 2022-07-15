@@ -25,6 +25,7 @@ def get_input():
     """
     Gets user input for artist name.
     """
+
     while True:
         user_input = input().lower().strip()
         if user_input == "":
@@ -40,6 +41,7 @@ def download_image(url):
     Downloads an image from url.
     Returns the file name.
     """
+
     filename = url.split("/")[-1]
     r = requests.get(url, stream = True)
     # Check if the image was retrieved successfully
@@ -63,6 +65,8 @@ def get_portrait(url):
     Take user input of an artist and finds a self portrait of that artist.
     If there are more than one self portrait, picks a random one.
     """
+
+    print("Finding portrait.")
     portrait_url = "https://www.wga.hu/art/{}"
     try:
         response = requests.get(url)
@@ -91,6 +95,7 @@ def valid_url(url):
     """
     Checks if a url is valid.
     """
+
     parsed = urlparse(url)
     return bool(parsed.netloc) and bool(parsed.scheme)
 
@@ -98,6 +103,7 @@ def get_thumbnail_urls(url):
     """
     Returns all image URLs in a list.
     """
+
     soup = bs(requests.get(url).content, "html.parser")
 
     url_list = []
@@ -114,33 +120,125 @@ def get_thumbnail_urls(url):
 
         if valid_url(img_url):
             url_list.append(img_url)
-    print(len(url_list))
+
+    if url_list == 0:
+        sys.exit("No thumbnails found.")
+
     return url_list
 
 def download_thumbnails(url, pathname):
     """
     Downloads the thumbnail image.
     """
+
+    # Checks if artist directory exists
+    # If not, creates one
+    if not os.path.exists(pathname):
+        os.mkdir(pathname)
+    # Check if there are files already in pathname
+    # If so, exists function
+    if len(pathname) > 0:
+        return
+
     response = requests.get(url)
     filename = os.path.join(pathname, url.split("/")[-1])
 
 
-    # This is very slow, needs to be faster.
+    # This is very slow, needs to be faster
     with open(filename, "wb") as file:
         file.write(response.content)
 
+def get_rgb(img_object):
+    """
+    Generate a 3 tuple numerical value (red, green, blue)
+    for each pixel in an image and returns the average value.
+    """
 
-def chunk():
+    rgb_list = list(img_object.getdata())
+    pixels = len(rgb_list)
+    r, g, b = 0, 0, 0
+    for pixel in rgb_list:
+        r += pixel[0]
+        g += pixel[1]
+        b += pixel[2]
+    average_rgb = [int(r/pixels), int(g/pixels), int(b/pixels)]
+    return average_rgb
+
+
+def get_thumbnail_avg_ratio(pathname):
     """
-    Takes an image and splits it into 1024 (arbitrary) pieces.
-    Then run get_rgb() on each piece.
+    Gets the average aspect ratio of all thumbnails.
+    Example: height 1.2, width 0.8
     """
+
+    ratio = 0
+    for file in os.listdir(pathname):
+        file = pathname+"/"+file
+        with Image.open(file).convert("RGB") as im:
+            ratio += im.height/im.width
+
+    height = round(ratio/len(os.listdir(pathname)), 3)
+    width = round(((1 - height) + 1), 3)
+
+    return height, width
+
+
+def get_tile_dimensions(ratio_height, ratio_width, portrait):
+    """
+    Using the average thumbnail ratio,
+    Get the tile pixel width and height using the portrait.
+    """
+
+    # 32 is derived from 32x32=1024 on a square,
+    # which is roughly how many tiles that look good for a mosaic
+    with Image.open(portrait).convert("RGB") as im:
+        # Calculates pixel width and height based on ratios
+        pixel_height = round(im.height * ratio_height / 32)
+        pixel_width = round(im.width * ratio_width / 32)
+
+    return pixel_height, pixel_width
+
+
+def create_tiles(portrait, pathname):
+    """
+    Resizes thumbnails using get_tile_dimensions().
+    """
+
+    # Creates a directory to hold tiles if it does not exist
+    tile_dir = pathname+"_tiles"
+    if not os.path.exists(tile_dir):
+        os.mkdir(tile_dir)
+
+    # Gets the average ratio from thumbnails
+    ratio_height, ratio_width = get_thumbnail_avg_ratio(pathname)
+
+    # Gets the dimensions
+    size = get_tile_dimensions(ratio_height, ratio_width, portrait)
+    print(size)
+
+    # Resizes tiles and saves to a new directory
+    for file in os.listdir(pathname):
+        filename = pathname+"/"+file
+        with Image.open(filename).convert("RGB") as im:
+            im1 = im.resize(size)
+            im1.save(tile_dir+"/"+file, "JPEG")
+
+
+def divide_portrait(ratio_height, ratio_width, portrait):
+    """
+    Takes the average ratio size of thumbnails
+    and calculates the pixel width and height using the portrait.
+    """
+
     im_dict = {}
-    with Image.open(infile).convert("RGB") as im:
-        # print(im.size)
+    with Image.open(portrait).convert("RGB") as im:
+        # Calculates how many rows and columns are needed
+        rows = round(im.height / (32 * height))
+        columns = round(im.width / (32 * width))
+
         # Think of grid where origin is top left on image
-        for a in range(32):
-            for b in range(32):
+        for a in range(columns):
+            for b in range(rows):
                 top = int(im.height/32) * a # x
                 left = int(im.width/32) * b # y
                 bottom = int(im.height/32) * (a + 1) # x
@@ -153,39 +251,7 @@ def chunk():
                 else:
                     im_dict[a + 1] += get_rgb(im1)
         print(im_dict)
-
-
-def create_thumbnail():
-    """
-    Creates a thumbnail of a JPEG,
-    preserving aspect ratios with 128x128 max resolution.
-    """
-    infile = "Monet_Veduta_di_Rouelles.jpg"
-    size = 128, 128
-
-    # file, ext = os.path.splitext(infile)
-    with Image.open(infile).convert("RGB") as im:
-        im.thumbnail(size)
-        print(len(list(im.getdata())))
-        avg_rgb = get_rgb(im)
-        im.save(f"1_{avg_rgb[0]}_{avg_rgb[1]}_{avg_rgb[2]}" + ".thumbnail", "JPEG")
-
-
-def get_rgb(img_object):
-    """
-    Generate a 3 tuple numerical value (red, green, blue)
-    for each pixel in an image and returns the average value.
-    """
-    rgb_list = list(img_object.getdata())
-    pixels = len(rgb_list)
-    r, g, b = 0, 0, 0
-    for pixel in rgb_list:
-        r += pixel[0]
-        g += pixel[1]
-        b += pixel[2]
-    average_rgb = [int(r/pixels), int(g/pixels), int(b/pixels)]
-    return average_rgb
-
+        
 
 def main():
     cur_dir = os.getcwd()
@@ -205,42 +271,47 @@ def main():
         user_input = get_input()
 
         artist_name = artist_name+user_input
-        url = url.format(artist_name, title+"self+portrait")
-        pathname = cur_dir+"/images/"+user_input.replace("+", "_")
-        filename = get_portrait(url)
+        pathname = cur_dir+"/"+user_input.replace("+", "_")
+        portrait_file = get_portrait(url.format(artist_name, title+"self+portrait"))
 
-        thumbnail_list = get_thumbnail_urls(url)
+        thumbnail_list = get_thumbnail_urls(url.format(artist_name, title))
         for url in thumbnail_list:
-            download_thumbnail(url, pathname)
+            download_thumbnails(url, pathname)
+
+        create_tiles(portrait_file, pathname)
+        # divide_portrait(ratio_height, ratio_width, portrait_file)
 
 
 
 
-    # If 1 CLA is given, that CLA is for a local image to
-    # be made into a mosaic
-    elif len(sys.argv) == 2:
-        file = cur_dir+"/"+sys.argv[1]
-        if not os.path.exists(file):
-            sys.exit(f"Could not find {sys.argv[1]}.")
-
-        user_input = input("Which artist's works would you like? ")
-        artist_name = artist_name+get_input()
-        url = url.format(artist_name, title)
-
-        thumbnails = get_thumbnail_urls(url)
-        for img in imgs:
-            download_thumbnail(img, path)
 
 
-    # If 2 command line arguments are given.
-    # First CLA is the image that will be made into a mosaic.
-    # Second CLA is the thumbnail database.
-    elif len(sys.argv) == 3:
+    # # If 1 CLA is given, that CLA is for a local image to
+    # # be made into a mosaic
+    # elif len(sys.argv) == 2:
+    #     file = cur_dir+"/"+sys.argv[1]
+    #     if not os.path.exists(file):
+    #         sys.exit(f"Could not find {sys.argv[1]}.")
+    #
+    #     user_input = input("Which artist's works would you like? ")
+    #     artist_name = artist_name+get_input()
+    #     url = url.format(artist_name, title)
+    #
+    #
+    #     thumbnails = get_thumbnail_urls(url)
+    #     for img in imgs:
+    #         download_thumbnail(img, path)
 
-        if not os.path.exists(sys.argv[2]):
-            sys.exit(f"Could not find {sys.argv[1]}.")
-        if not os.path.exists(sys.argv[3]):
-            sys.exit(f"Could not find {sys.argv[2]}.")
+
+    # # If 2 command line arguments are given.
+    # # First CLA is the image that will be made into a mosaic.
+    # # Second CLA is the thumbnail database.
+    # elif len(sys.argv) == 3:
+    #
+    #     if not os.path.exists(sys.argv[2]):
+    #         sys.exit(f"Could not find {sys.argv[1]}.")
+    #     if not os.path.exists(sys.argv[3]):
+    #         sys.exit(f"Could not find {sys.argv[2]}.")
 
 
 if __name__ == "__main__":
