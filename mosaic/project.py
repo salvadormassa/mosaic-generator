@@ -36,6 +36,17 @@ def get_input():
     return artist_name
 
 
+def valid_url(url):
+    """
+    Checks if a url is valid.
+    """
+
+    # Splits url into separate components
+    parsed = urlparse(url)
+    # Scheme is protocol (https), netloc is network location (www.google.com)
+    return bool(parsed.netloc) and bool(parsed.scheme)
+
+
 def download_image(url):
     """
     Downloads an image from url.
@@ -72,10 +83,10 @@ def get_portrait(url):
         response = requests.get(url)
         # If the response was successful, no Exception will be raised
         response.raise_for_status()
-    except HTTPError as http_err:
-        print(f'HTTP error occurred: {http_err}')
-    except Exception as err:
-        print(f'Other error occurred: {err}')
+    except HTTPError as http_error:
+        print(f'HTTP error occurred: {http_error}')
+    except Exception as error:
+        print(f'Other error occurred: {error}')
 
     soup = str(bs(requests.get(url).content, "html.parser"))
     regex = r'href="\/art\/([\/\w\.]*)"'
@@ -91,13 +102,7 @@ def get_portrait(url):
 
     return filename
 
-def valid_url(url):
-    """
-    Checks if a url is valid.
-    """
 
-    parsed = urlparse(url)
-    return bool(parsed.netloc) and bool(parsed.scheme)
 
 def get_thumbnail_urls(url):
     """
@@ -107,7 +112,7 @@ def get_thumbnail_urls(url):
     soup = bs(requests.get(url).content, "html.parser")
 
     url_list = []
-    for img in soup.find_all("img", src=re.compile('.*\.jpg', re.IGNORECASE)):
+    for img in soup.find_all("img", src=re.compile(".*\.jpg", re.IGNORECASE)):
         img_url = img.get("src")
 
         # If img does not contain src attribute, then skip.
@@ -148,22 +153,6 @@ def download_thumbnails(url, pathname):
     with open(filename, "wb") as file:
         file.write(response.content)
 
-def get_rgb(img_object):
-    """
-    Generate a 3 tuple numerical value (red, green, blue)
-    for each pixel in an image and returns the average value.
-    """
-
-    rgb_list = list(img_object.getdata())
-    pixels = len(rgb_list)
-    r, g, b = 0, 0, 0
-    for pixel in rgb_list:
-        r += pixel[0]
-        g += pixel[1]
-        b += pixel[2]
-    average_rgb = [int(r/pixels), int(g/pixels), int(b/pixels)]
-    return average_rgb
-
 
 def get_thumbnail_avg_ratio(pathname):
     """
@@ -173,7 +162,7 @@ def get_thumbnail_avg_ratio(pathname):
 
     ratio = 0
     for file in os.listdir(pathname):
-        file = pathname+"/"+file
+        file = os.path.join(pathname, file)
         with Image.open(file).convert("RGB") as im:
             ratio += im.height/im.width
 
@@ -189,19 +178,19 @@ def get_tile_dimensions(ratio_height, ratio_width, portrait):
     Get the tile pixel width and height using the portrait.
     """
 
-    # 32 is derived from 32x32=1024 on a square,
     # which is roughly how many tiles that look good for a mosaic
     with Image.open(portrait).convert("RGB") as im:
         # Calculates pixel width and height based on ratios
-        pixel_height = round(im.height * ratio_height / 32)
-        pixel_width = round(im.width * ratio_width / 32)
+        pixel_height = round(im.height / (ratio_height * 32))
+        pixel_width = round(im.width / (ratio_width * 32))
 
     return pixel_height, pixel_width
 
 
-def create_tiles(portrait, pathname):
+def create_dict_resize_save_tiles(size, pathname):
     """
-    Resizes thumbnails using get_tile_dimensions().
+    Resizes tiles, gets the rgb and saves to dict.
+    Saves file to new directory.
     """
 
     # Creates a directory to hold tiles if it does not exist
@@ -209,52 +198,123 @@ def create_tiles(portrait, pathname):
     if not os.path.exists(tile_dir):
         os.mkdir(tile_dir)
 
+    # Resizes tiles and saves to a directory
+    tile_dict = {}
+    for file in os.listdir(pathname):
+        filename = os.path.join(pathname, file)
+        with Image.open(filename).convert("RGB") as im:
+            im1 = im.resize(size)
+            # Get image average RGB while file is open, add to dictionary
+            if filename not in tile_dict:
+                tile_dict[file] = get_rgb(im1)
+            # Save tile to new directory
+            im1.save(os.path.join(tile_dir, file), "JPEG")
+
+    # Save tile_dict to json file
+    json_filename = os.path.basename(pathname).split(".")[0]
+    with open(f"{json_filename}_tiles.json", "w") as outfile:
+        json.dump(tile_dict, outfile)
+
+    return tile_dir, json_filename
+
+
+
+def create_tiles(portrait, pathname):
+    """
+    Resizes thumbnails using get_thumbnail_avg_ratio and
+    get_tile_dimensions() fucntions.
+    Creates RGB dictionary, saves to json, resizes and saves as tiles.
+    """
+
     # Gets the average ratio from thumbnails
     ratio_height, ratio_width = get_thumbnail_avg_ratio(pathname)
 
     # Gets the dimensions
     size = get_tile_dimensions(ratio_height, ratio_width, portrait)
-    print(size)
 
-    # Resizes tiles and saves to a new directory
-    for file in os.listdir(pathname):
-        filename = pathname+"/"+file
-        with Image.open(filename).convert("RGB") as im:
-            im1 = im.resize(size)
-            im1.save(tile_dir+"/"+file, "JPEG")
+    # Creates RGB dictionary from tiles, saves to json file
+    # Resizes and save tiles to new directory
+    tile_dir, json_filename = create_dict_resize_save_tiles(size, pathname)
+
+    return ratio_height, ratio_width, tile_dir, json_filename
 
 
-def divide_portrait(ratio_height, ratio_width, portrait):
+def get_rgb(img_object):
     """
-    Takes the average ratio size of thumbnails
-    and calculates the pixel width and height using the portrait.
+    Generates 3 numerical values (red, green, blue)
+    for each pixel in an image and returns the average value.
     """
 
-    im_dict = {}
-    with Image.open(portrait).convert("RGB") as im:
+    rgb_list = list(img_object.getdata())
+    pixels = len(rgb_list)
+    r, g, b = 0, 0, 0
+    for pixel in rgb_list:
+        r += pixel[0]
+        g += pixel[1]
+        b += pixel[2]
+    average_rgb = [int(r/pixels), int(g/pixels), int(b/pixels)]
+    return average_rgb
+
+
+def compile_mosiac(ratio_height, ratio_width, tile_dir, json_filename, portrait_file):
+    """
+    Breaks portrait into roughly 1000 rectangles.
+    Uses json file to find best suited tile for each rectangle.
+    Pastes each tile on best rentangle on a new portrait image.
+    """
+
+    # Create a copy of portrait
+    with Image.open(portrait_file).convert("RGB") as im:
+        copy_filename = "copy_of_"+portrait_file
+        im1 = im.copy()
+        im1.save(os.path.join(os.getcwd(), copy_filename), "JPEG")
+
+    with Image.open(copy_filename).convert("RGB") as copy_image:
         # Calculates how many rows and columns are needed
-        rows = round(im.height / (32 * height))
-        columns = round(im.width / (32 * width))
+        rows = round(copy_image.height / (ratio_height * 32))
+        columns = round(copy_image.width / (ratio_width * 32))
+        print(rows, columns)
 
         # Think of grid where origin is top left on image
-        for a in range(columns):
-            for b in range(rows):
-                top = int(im.height/32) * a # x
-                left = int(im.width/32) * b # y
-                bottom = int(im.height/32) * (a + 1) # x
-                right = int(im.width/32) * (b + 1) # y
+        with open("tile_dictionary.json") as infile:
+            tile_data = json.loads(infile.read())
+            for a in range(rows):
+                for b in range(columns):
+                    best_match = ""
+                    best_match_diff = 10000
+                    top = columns * a # x
+                    left = rows * b # y
+                    bottom = columns * (a + 1) # x
+                    right = rows * (b + 1) # y
 
-                im1 = im.crop((left, top, right, bottom))
-                # im1.show()
-                if a + 1 not in im_dict:
-                    im_dict[a + 1] = get_rgb(im1)
-                else:
-                    im_dict[a + 1] += get_rgb(im1)
-        print(im_dict)
-        
+                    coordinates = (left, top, right, bottom)
+                    im1 = copy_image.crop(coordinates)
+                    portrait_rgb = get_rgb(im1)
+                    portrait_rgb = portrait_rgb[0]+portrait_rgb[1]+portrait_rgb[2]
+
+
+                    # Iterate through tile_data and compare to portrait
+                    # Which ever number is closest wins
+                    for i in tile_data:
+                        tile_rgb = tile_data[i][0]+tile_data[i][1]+tile_data[i][2]
+                        if tile_rgb > portrait_rgb:
+                            diff = tile_rgb - portrait_rgb
+                        else:
+                            diff = portrait_rgb - tile_rgb
+
+                        if diff < best_match_diff:
+                            best_match_diff = diff
+                            best_match = i
+
+                    paste_path = os.path.join(tile_dir, best_match)
+                    with Image.open(paste_path).convert("RGB") as paste_image:
+                        copy_image.paste(paste_image, coordinates)
+
+        file = "new_"+copy_filename
+        copy_image.save(os.path.join(os.getcwd(), file), "JPEG")
+
 
 def main():
-    cur_dir = os.getcwd()
     artist_name = "author="
     title = "title="
     url = "https://www.wga.hu/cgi-bin/search.cgi?{}&{}&comment=&time=any&school=any&form=any&type=any&location=&max=1000&format=5"
@@ -271,15 +331,16 @@ def main():
         user_input = get_input()
 
         artist_name = artist_name+user_input
-        pathname = cur_dir+"/"+user_input.replace("+", "_")
+        pathname = os.path.join(os.getcwd(), user_input.replace("+", "_"))
         portrait_file = get_portrait(url.format(artist_name, title+"self+portrait"))
 
         thumbnail_list = get_thumbnail_urls(url.format(artist_name, title))
         for url in thumbnail_list:
             download_thumbnails(url, pathname)
 
-        create_tiles(portrait_file, pathname)
-        # divide_portrait(ratio_height, ratio_width, portrait_file)
+        ratio_height, ratio_width, tile_dir, json_filename = create_tiles(portrait_file, pathname)
+
+        compile_mosiac(ratio_height, ratio_width, tile_dir, json_filename, portrait_file)
 
 
 
