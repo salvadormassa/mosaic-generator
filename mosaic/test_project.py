@@ -33,3 +33,9 @@ def test_valid_url():
         reader = infile.readlines()
         for line in reader:
             assert valid_url(line.strip()) == True
+
+def test_verify_CLA(monkeypatch):
+    pathname = os.path.join(os.getcwd(), "test_files/test_images")
+    for file in os.listdir(pathname):
+        monkeypatch.setattr('sys.argv', [os.path.join(pathname, file), pathname])
+        assert verify_CLA() == None
