@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
 
-"""
-This script creates a mosiac of an image using smaller images.
-It can accept 1 or 2 additional command line arguments.
-
-If no arguments are given, the script will ask for user input for a painter.
-It will attempt to find a self-portrait of the painter to be made into a mosaic,
-and also find the art from that painter to compose the mosaic.
-
-The first optional argument should be a path to an image that
-will be used as the blueprint for the mosaic.
-The second optional argument should be the path to a directory containing
-images that will be used to compose the mosaic.
-
-If only the first argument is given, the script will then
-prompt the user for a painter whos art will compose the mosaic.
-"""
-
 from PIL import Image
 import os
 import requests
@@ -25,11 +8,19 @@ import shutil
 import json
 import re
 import sys
+import time
 # Beautiful Soup is a Python library for pulling data out of HTML and XML files.
 from bs4 import BeautifulSoup as bs
 from urllib.parse import urljoin, urlparse
 from random import choice
+# Adds progress meter to iterations
+from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
+# Adds ability to pool.map to use functions with multiple arguments
+from functools import partial
 
+# Value to input into equations to calculate the number of tiles
+tile_num = 20
 
 def get_input():
     """
@@ -37,7 +28,7 @@ def get_input():
     """
 
     while True:
-        user_input = input("Input a famous classical painter: ", end="").lower().strip()
+        user_input = input("Input a famous classical painter: ").lower().strip()
         if user_input == "":
             continue
         break
@@ -61,7 +52,6 @@ def download_image(url, pathname=""):
     Downloads image to path.
     If no pathname given, downloads to current directory.
     """
-
     filename = url.split("/")[-1]
     response = requests.get(url, stream = True)
     # Check if the image was retrieved successfully
@@ -73,6 +63,8 @@ def download_image(url, pathname=""):
         # Open a local file with wb ( write binary ) permission.
         with open(os.path.join(pathname, filename),'wb') as file:
             shutil.copyfileobj(response.raw, file)
+
+    return filename
 
 
 def get_portrait(url):
@@ -95,9 +87,8 @@ def get_portrait(url):
         sys.exit("No portraits found.")
 
     portrait_url = f"https://www.wga.hu/art/{self_portrait}"
-    filename = download_image(portrait_url)
 
-    return filename
+    return download_image(portrait_url)
 
 
 def get_thumbnail_urls(url):
@@ -118,43 +109,15 @@ def get_thumbnail_urls(url):
         # Takes the url and cuts off the "base" component,
         # then attaches it to the image url.
         img_url = urljoin(url, img_url)
-        url_list += img_url
+        url_list += [img_url]
 
     if url_list == 0:
         sys.exit("No artist paintings found.")
 
     return url_list
 
-def download_thumbnail(url, pathname):
-    """
-    Downloads the thumbnail image.
-    """
 
-    response = requests.get(url)
-    filename = os.path.join(pathname, url.split("/")[-1])
-    # This is very slow, needs to be faster
-    download(filename, response)
-
-
-def get_thumbnail_avg_ratio(pathname):
-    """
-    Gets the average aspect ratio of all thumbnails.
-    Example: height 1.2, width 0.8
-    """
-
-    ratio = 0
-    for file in os.listdir(pathname):
-        file = os.path.join(pathname, file)
-        with Image.open(file).convert("RGB") as im:
-            ratio += im.height/im.width
-
-    height = round(ratio/len(os.listdir(pathname)), 3)
-    width = round(((1 - height) + 1), 3)
-
-    return height, width
-
-
-def get_tile_dimensions(ratio_height, ratio_width, portrait):
+def get_tile_dimensions(portrait):
     """
     Using the average thumbnail ratio,
     Get the tile pixel width and height using the portrait.
@@ -162,11 +125,15 @@ def get_tile_dimensions(ratio_height, ratio_width, portrait):
 
     # which is roughly how many tiles that look good for a mosaic
     with Image.open(portrait).convert("RGB") as im:
-        # Calculates pixel width and height based on ratios
-        pixel_height = round(im.height / (ratio_height * 32))
-        pixel_width = round(im.width / (ratio_width * 32))
+        # Given a known amount of squares (tile_num),
+        # Find how how many rows and columns in a renctangle
+        ratio = im.height/im.width
+        columns = im.width/tile_num
+        rows = columns*ratio
+        size = round(im.height/rows)
+        size = (size, size)
 
-    return pixel_height, pixel_width
+    return size
 
 
 def create_dict_resize_save_tiles(size, pathname):
@@ -193,15 +160,15 @@ def create_dict_resize_save_tiles(size, pathname):
             im1.save(os.path.join(tile_dir, file), "JPEG")
 
     # Save tile_dict to json file
-    json_filename = os.path.basename(pathname).split(".")[0]
-    with open(f"{json_filename}_tiles.json", "w") as outfile:
+    json_filename = os.path.basename(pathname).split(".")[0]+"_tiles.json"
+    with open(json_filename, "w") as outfile:
         json.dump(tile_dict, outfile)
 
     return tile_dir, json_filename
 
 
 
-def create_tiles(portrait, pathname):
+def create_tiles(portrait, pathname, tile_url=""):
     """
     Resizes thumbnails using get_thumbnail_avg_ratio and
     get_tile_dimensions() fucntions.
@@ -214,25 +181,22 @@ def create_tiles(portrait, pathname):
         os.mkdir(pathname)
     # Check if there are files already in pathname
     # If so, exists function
-    if len(pathname) > 0:
-        return
-
-    # Get collection of art
-    thumbnail_url_list = get_thumbnail_urls(url.format(artist_name, title))
-    for url in thumbnail_url_list:
-        download_thumbnail(url, pathname)
-
-    # Gets the average ratio from thumbnails
-    ratio_height, ratio_width = get_thumbnail_avg_ratio(pathname)
+    if len(os.listdir(pathname)) == 0:
+        # Get collection of art
+        thumbnail_url_list = get_thumbnail_urls(tile_url)
+        iter_list = iter(thumbnail_url_list)
+        with Pool(cpu_count()) as p:
+            print("Downloading thumbnails...")
+            p.map(partial(download_image, pathname=pathname), thumbnail_url_list)
 
     # Derive dimensions from portrait
-    size = get_tile_dimensions(ratio_height, ratio_width, portrait)
+    square_size = get_tile_dimensions(portrait)
 
     # Creates RGB dictionary from tiles, saves to json file
     # Resizes and save tiles to new directory
-    tile_dir, json_filename = create_dict_resize_save_tiles(size, pathname)
+    tile_dir, json_filename = create_dict_resize_save_tiles(square_size, pathname)
 
-    return ratio_height, ratio_width, tile_dir, json_filename
+    return tile_dir, json_filename
 
 
 def get_rgb(img_object):
@@ -252,42 +216,39 @@ def get_rgb(img_object):
     return average_rgb
 
 
-def compose_mosaic(ratio_height, ratio_width, tile_dir, json_filename, portrait_file):
+def compose_mosaic(tile_dir, json_filename, portrait_file, image_name):
     """
     Breaks portrait into roughly 1000 rectangles.
     Uses json file to find best suited tile for each rectangle.
     Pastes each tile on best rentangle on a new portrait image.
     """
 
-    # Create a copy of portrait
+    print(f"Composing {image_name}")
+    # Calculates how many rows and columns are needed
     with Image.open(portrait_file).convert("RGB") as im:
-        copy_filename = "copy_of_"+portrait_file
-        im1 = im.copy()
-        im1.save(os.path.join(os.getcwd(), copy_filename), "JPEG")
-
-    with Image.open(copy_filename).convert("RGB") as copy_image:
-        # Calculates how many rows and columns are needed
-        rows = round(copy_image.height / (ratio_height * 32))
-        columns = round(copy_image.width / (ratio_width * 32))
-        print(rows, columns)
+        ratio = im.height/im.width
+        columns = im.width/tile_num
+        rows = columns*ratio
+        size = round(im.height/rows)
+        rows = round(rows)
+        columns = round(columns)
 
         # Think of grid where origin is top left on image
-        with open("tile_dictionary.json") as infile:
+        with open(json_filename) as infile:
             tile_data = json.loads(infile.read())
             for a in range(rows):
                 for b in range(columns):
                     best_match = ""
-                    best_match_diff = 10000
-                    top = columns * a # x
-                    left = rows * b # y
-                    bottom = columns * (a + 1) # x
-                    right = rows * (b + 1) # y
+                    best_match_diff = 10000 # Arbitrary #, will be replaced with first iteration
+                    top = int(size * a)# x
+                    left = int(size * b) # y
+                    bottom = int(size * (a + 1)) # x
+                    right = int(size * (b + 1)) # y
 
                     coordinates = (left, top, right, bottom)
-                    im1 = copy_image.crop(coordinates)
+                    im1 = im.crop(coordinates)
                     portrait_rgb = get_rgb(im1)
                     portrait_rgb = portrait_rgb[0]+portrait_rgb[1]+portrait_rgb[2]
-
 
                     # Iterate through tile_data and compare to portrait
                     # Which ever number is closest wins
@@ -304,10 +265,9 @@ def compose_mosaic(ratio_height, ratio_width, tile_dir, json_filename, portrait_
 
                     paste_path = os.path.join(tile_dir, best_match)
                     with Image.open(paste_path).convert("RGB") as paste_image:
-                        copy_image.paste(paste_image, coordinates)
+                        im.paste(paste_image, coordinates)
 
-        file = "new_"+copy_filename
-        copy_image.save(os.path.join(os.getcwd(), file), "JPEG")
+        im.save(os.path.join(os.getcwd(), image_name), "JPEG")
 
 
 def main_no_arg():
@@ -320,22 +280,24 @@ def main_no_arg():
     url = "https://www.wga.hu/cgi-bin/search.cgi?{}&{}&comment=&time=any&school=any&form=painting&type=any&location=&max=1000&format=5"
 
     # Get user input, compile and validate url
-    user_input = get_input().replace(" ", "+")
-    artist_name = artist_name+user_input
-    portrait_url = url.format(artist_name, title+"self+portrait")
+    user_input = get_input()
+    image_name = user_input.replace(" ", "_")+"_mosaic"
+    artist_name = artist+user_input
+    portrait_url = url.format(artist_name.replace(" ", "+"), title+"self+portrait")
     validate_url(portrait_url)
 
     # Get portrait image
     portrait_file = get_portrait(portrait_url)
 
     # Get pathname for tile directory
-    pathname = os.path.join(os.getcwd(), user_input.replace("+", "_"))
+    pathname = os.path.join(os.getcwd(), user_input.replace(" ", "_"))
 
     # Create the tiles
-    ratio_height, ratio_width, tile_dir, json_filename = create_tiles(portrait_file, pathname)
+    tile_url = url.format(artist_name.replace(" ", "+"), title)
+    tile_dir, json_filename = create_tiles(portrait_file, pathname, tile_url)
 
     # Compose the mosaic
-    compose_mosaic(ratio_height, ratio_width, tile_dir, json_filename, portrait_file)
+    compose_mosaic(tile_dir, json_filename, portrait_file, image_name)
 
 
 def verify_CLA(*args):
@@ -346,23 +308,25 @@ def verify_CLA(*args):
     valid_ext = ["jpg", "jpeg", "png"]
     try:
         # Argument 1 checks
-        if not os.path.exists(args[0]):
-            sys.exit(f"Could not find {args[0]}.")
-        if os.path.getsize(args[0]) == 0:
-            sys.exit(f"{args[0]} is an invalid file.")
-        if sys.args[1].split(".")[-1] not in valid_ext:
-            sys.exit(f"{args[0]} is an invalid file type.")
+        arg_1 = args[0][0]
+        if not os.path.exists(arg_1):
+            sys.exit(f"Could not find {arg_1}.")
+        if os.path.getsize(arg_1) == 0:
+            sys.exit(f"{arg_1} is an invalid file.")
+        if args[1].split(".")[-1] not in valid_ext:
+            sys.exit(f"{arg_1} is an invalid file type.")
 
         # Argument 2 checks
-        if not os.path.exists(args[1]):
-            sys.exit(f"Could not find {args[1]}.")
-        if len(os.path.exists(args[1])) == 0:
-            sys.exit(f"There are no files in {args[1]}.")
+        arg_2 = args[0][1]
+        if not os.path.exists(arg_2):
+            sys.exit(f"Could not find {arg_2}.")
+        if len(os.path.exists(arg_2)) == 0:
+            sys.exit(f"There are no files in {arg_2}.")
     except IndexError:
         pass
 
 
-def main_1_arg():
+def main_1_arg(portrait):
     """
     Runs if 1 command line argument is given.
     """
@@ -370,35 +334,40 @@ def main_1_arg():
     url = "https://www.wga.hu/cgi-bin/search.cgi?author={}&title=&comment=&time=any&school=any&form=painting&type=any&location=&max=1000&format=5"
 
     # Get user input, compile and validate url
-    user_input = get_input().replace(" ", "+")
+    user_input = get_input()
+    name_split = portrait.split(".")
+    image_name = name_split[0]+"_mosaic."+name_split[1]
+    tile_dir = user_input.replace(" ", "_")
+    artist_name = user_input.replace(" ", "+")
     url = url.format(user_input)
     validate_url(url)
 
     # Get pathname for tile directory
-    pathname = os.path.join(os.getcwd(), user_input.replace("+", "_"))
+    pathname = os.path.join(os.getcwd(), tile_dir)
 
     # Create the tiles
-    ratio_height, ratio_width, tile_dir, json_filename = create_tiles(portrait_file, pathname)
+    tile_url = url.format(user_input.replace(" ", "+"))
+    tile_dir, json_filename = create_tiles(portrait, pathname, tile_url)
 
     # Compose the mosaic
-    compose_mosiac(ratio_height, ratio_width, tile_dir, json_filename, portrait_file)
+    compose_mosaic(tile_dir, json_filename, portrait, image_name)
 
     pass
 
 
-def main_2_arg():
+def main_2_arg(portrait, thumbnail_dir):
     """
     Runs if 2 command line arguments are given.
     """
 
-    portrait_file = sys.argv[1]
-    tile_dir = sys.argv[2]
+    name_split = portrait.split(".")
+    image_name = name_split[0]+"_mosaic."+name_split[1]
 
     # Create the tiles
-    ratio_height, ratio_width, tile_dir, json_filename = create_tiles(portrait_file, tile_dir)
+    tile_dir, json_filename = create_tiles(portrait, thumbnail_dir)
 
     # Compose the mosaic
-    compose_mosaic(ratio_height, ratio_width, tile_dir, json_filename, portrait_file)
+    compose_mosaic(tile_dir, json_filename, portrait, image_name)
     pass
 
 
@@ -418,12 +387,12 @@ def main():
 
     # If 1 command line arg is given
     if len(sys.argv) == 2:
-        main_1_arg()
+        main_1_arg(arguments[0])
         sys.exit()
 
     # If 2 command line args are given
     if len(sys.argv) == 3:
-        main_2_arg()
+        main_2_arg(arguments[0], arguments[1])
         sys.exit()
 
 
