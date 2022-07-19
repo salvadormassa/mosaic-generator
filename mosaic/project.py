@@ -2,6 +2,7 @@
 
 from PIL import Image
 import os
+import subprocess
 import requests
 from requests.exceptions import HTTPError
 import shutil
@@ -18,6 +19,8 @@ from tqdm import tqdm
 from multiprocessing import Pool, cpu_count
 # Adds ability to pool.map to use functions with multiple arguments
 from functools import partial
+# from memory_profiler import memory
+
 
 # Value to input into equations to calculate the number of tiles
 tile_num = 20
@@ -37,6 +40,10 @@ def get_input():
 
 
 def validate_url(url):
+    """
+    Tests a URL for errors.
+    """
+
     try:
         response = requests.get(url)
         # If the response was successful, no Exception will be raised
@@ -224,6 +231,11 @@ def compose_mosaic(tile_dir, json_filename, portrait_file, image_name):
     """
 
     print(f"Composing {image_name}")
+    # with Image.open(portrait_file).convert("RGB") as im:
+    #     copy_filename = "copy_of_"+portrait_file
+    #     im1 = im.copy()
+    #     im1.save(os.path.join(os.getcwd(), copy_filename), "JPEG")
+
     # Calculates how many rows and columns are needed
     with Image.open(portrait_file).convert("RGB") as im:
         ratio = im.height/im.width
@@ -267,7 +279,20 @@ def compose_mosaic(tile_dir, json_filename, portrait_file, image_name):
                     with Image.open(paste_path).convert("RGB") as paste_image:
                         im.paste(paste_image, coordinates)
 
-        im.save(os.path.join(os.getcwd(), image_name), "JPEG")
+        im_loc = os.path.join(os.getcwd()+"/mosaics", image_name+".jpg")
+        im.save(im_loc, "JPEG")
+        with Image.open(portrait_file).convert("RGB") as original:
+            original.show(portrait_file)
+        im.show(im_loc)
+
+def file_cleanup(json_filename, tile_dir=""):
+    """
+    Removes json file and tile directory.
+    """
+
+    subprocess.run(["rm", json_filename])
+    if os.path.exists(tile_dir):
+        subprocess.run(["rm", "-r", tile_dir])
 
 
 def main_no_arg():
@@ -290,7 +315,7 @@ def main_no_arg():
     portrait_file = get_portrait(portrait_url)
 
     # Get pathname for tile directory
-    pathname = os.path.join(os.getcwd(), user_input.replace(" ", "_"))
+    pathname = os.path.join(os.getcwd(), user_input.replace(" ", "_")+"_thumbnails")
 
     # Create the tiles
     tile_url = url.format(artist_name.replace(" ", "+"), title)
@@ -298,6 +323,9 @@ def main_no_arg():
 
     # Compose the mosaic
     compose_mosaic(tile_dir, json_filename, portrait_file, image_name)
+
+    # Remove files and directories
+    file_cleanup(json_filename, tile_dir)
 
 
 def verify_CLA(*args):
@@ -343,7 +371,7 @@ def main_1_arg(portrait):
     validate_url(url)
 
     # Get pathname for tile directory
-    pathname = os.path.join(os.getcwd(), tile_dir)
+    pathname = os.path.join(os.getcwd(), tile_dir+"_thumbnails")
 
     # Create the tiles
     tile_url = url.format(user_input.replace(" ", "+"))
@@ -352,7 +380,8 @@ def main_1_arg(portrait):
     # Compose the mosaic
     compose_mosaic(tile_dir, json_filename, portrait, image_name)
 
-    pass
+    # Remove files and directories
+    file_cleanup(json_filename, tile_dir)
 
 
 def main_2_arg(portrait, thumbnail_dir):
@@ -368,7 +397,9 @@ def main_2_arg(portrait, thumbnail_dir):
 
     # Compose the mosaic
     compose_mosaic(tile_dir, json_filename, portrait, image_name)
-    pass
+
+    # Remove files and directories
+    file_cleanup(json_filename, tile_dir)
 
 
 def main():
@@ -397,4 +428,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # @profile
     main()
