@@ -15,10 +15,10 @@ import pytest
 import mock
 
 from project import get_input
-# from project import valid_url_tiles
-from project import download_image
 from project import verify_CLA
 from project import get_portrait
+from project import get_rgb
+
 
 # monkeypatch replaces the input() function, temporarily,
 # with a string from the input list
@@ -35,9 +35,22 @@ def test_verify_CLA(monkeypatch):
         monkeypatch.setattr('sys.argv', [os.path.join(pathname, file), pathname])
         assert verify_CLA() == None
 
+def test_get_portrait_valid(monkeypatch):
+    with open("test_files/get_portrait_test_valid.txt") as infile:
+        reader = infile.readlines()
+        for line in reader:
+            monkeypatch.setattr("project.download_image", lambda _: "Valid")
+            assert get_portrait(line) == "Valid"
+
 def test_get_portrait_invalid(capsys):
     with open("test_files/get_portrait_test_invalid.txt") as infile:
         reader = infile.readlines()
         for line in reader:
             with pytest.raises(SystemExit):
                 assert get_portrait(line.strip()) == "No portraits found."
+
+def test_get_rgb():
+    path = os.path.join(os.getcwd(), "test_files/test_tiles")
+    for image in os.listdir(path):
+        with Image.open(os.path.join(path, image)).convert("RGB") as im:
+            assert get_rgb(im) < [256, 256, 256] and get_rgb(im) > [0, 0, 0]
