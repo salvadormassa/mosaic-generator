@@ -19,7 +19,6 @@ from project import verify_CLA
 from project import get_portrait
 from project import get_rgb
 
-
 # monkeypatch replaces the input() function, temporarily,
 # with a string from the input list
 def test_get_input_valid(monkeypatch):
