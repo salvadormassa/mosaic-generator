@@ -45,8 +45,9 @@ When the program is replaces template image squares, it adds up the RGB as one n
 in value, and uses that tile as a replacement.<br /><br />
 This seems to work relatively well, compared to its simplicity, although a better solution is no doubt probable.  
 ## Bugs
-### Magic Number
-This magic number approach does not scale accurately. The tiles on larger images will be too small, and the tiles on smaller images will be too large.  
-## Additional Features to Add
-- Add code to delete downloaded files.
-- Progress meter on downloads/mosiac composition.
+### *Solved* Tile Density Relative to Mosaic Size
+There was an issue when trying to have the same amount of tile no matter the relative size of the image that was to be made into a mosaic. Solving it was just a matter of just factoring in percentages.
+## Additional Work To Do
+- *Completed* Add code to delete downloaded files.
+- Progress meter on downloads/mosiac composition. tqdm does not work with easily work with Pool.
+- Refine how tile color comparisons are calculated.
