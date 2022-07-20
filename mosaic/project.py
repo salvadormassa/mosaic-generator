@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 
-from PIL import Image
+# Built in libraries
 import os
 import subprocess
 import requests
-from requests.exceptions import HTTPError
 import shutil
 import json
 import re
 import sys
 import time
-# Beautiful Soup is a Python library for pulling data out of HTML and XML files.
-from bs4 import BeautifulSoup as bs
-from urllib.parse import urljoin, urlparse
 from random import choice
-# Adds progress meter to iterations
-from tqdm import tqdm
+from requests.exceptions import HTTPError
+from urllib.parse import urljoin, urlparse
 from multiprocessing import Pool, cpu_count
 # Adds ability to pool.map to use functions with multiple arguments
 from functools import partial
-# from memory_profiler import memory
+
+# Add in libraries
+# Python Imaging Library (PIL) image processing package for Python language.
+from PIL import Image
+# Beautiful Soup is a Python library for pulling data out of HTML and XML files.
+from bs4 import BeautifulSoup as bs
+# Adds progress meter to iterations
+from tqdm import tqdm
 
 
 # Value to input into equations to calculate the number of tiles
@@ -74,7 +77,7 @@ def download_image(url, pathname=""):
     return filename
 
 
-def get_portrait(url):
+def get_portrait(url, artist):
     """
     Take user input of an artist and finds a self portrait of that artist.
     If there are more than one self portrait, picks a random one.
@@ -91,14 +94,14 @@ def get_portrait(url):
         regex = r'href="\/art\/([\/\w\.]*\.jpg)"'
         self_portrait = choice(re.findall(regex, soup))
     except IndexError:
-        sys.exit("No portraits found.")
+        sys.exit(f"No portraits found for {artist}.")
 
     portrait_url = f"https://www.wga.hu/art/{self_portrait}"
 
     return download_image(portrait_url)
 
 
-def get_thumbnail_urls(url):
+def get_thumbnail_urls(url, user_input=""):
     """
     Opens URL and finds all .jpg instances and those URLs to a list.
     """
@@ -118,8 +121,8 @@ def get_thumbnail_urls(url):
         img_url = urljoin(url, img_url)
         url_list += [img_url]
 
-    if url_list == 0:
-        sys.exit("No artist paintings found.")
+    if len(url_list) == 0:
+        sys.exit(f"No art found for {user_input}.")
 
     return url_list
 
@@ -175,29 +178,30 @@ def create_dict_resize_save_tiles(size, pathname):
 
 
 
-def create_tiles(portrait, pathname, tile_url=""):
+def create_tiles(template_image, pathname, thumbnail_url="", user_input=""):
     """
     Resizes thumbnails using get_thumbnail_avg_ratio and
     get_tile_dimensions() fucntions.
     Creates RGB dictionary, saves to json, resizes and saves as tiles.
     """
 
-    # Checks if artist directory exists
-    # If not, creates one
-    if not os.path.exists(pathname):
-        os.mkdir(pathname)
-    # Check if there are files already in pathname
-    # If so, exists function
-    if len(os.listdir(pathname)) == 0:
-        # Get collection of art
-        thumbnail_url_list = get_thumbnail_urls(tile_url)
+    # Checks if artist directory exists and is not empty
+    if os.path.exists(pathname) and len(os.listdir(pathname)) > 0:
+        pass
+    # If not, create a directory and download thumbnails
+    else:
+        try:
+            os.mkdir(pathname)
+        except FileExistsError:
+            pass
+        thumbnail_url_list = get_thumbnail_urls(thumbnail_url, user_input=user_input)
         iter_list = iter(thumbnail_url_list)
         with Pool(cpu_count()) as p:
             print("Downloading thumbnails...")
             p.map(partial(download_image, pathname=pathname), thumbnail_url_list)
 
     # Derive dimensions from portrait
-    square_size = get_tile_dimensions(portrait)
+    square_size = get_tile_dimensions(template_image)
 
     # Creates RGB dictionary from tiles, saves to json file
     # Resizes and save tiles to new directory
@@ -312,14 +316,14 @@ def main_no_arg():
     validate_url(portrait_url)
 
     # Get portrait image
-    portrait_file = get_portrait(portrait_url)
+    portrait_file = get_portrait(portrait_url, user_input)
 
     # Get pathname for tile directory
     pathname = os.path.join(os.getcwd(), user_input.replace(" ", "_")+"_thumbnails")
 
     # Create the tiles
-    tile_url = url.format(artist_name.replace(" ", "+"), title)
-    tile_dir, json_filename = create_tiles(portrait_file, pathname, tile_url)
+    thumbnail_url = url.format(artist_name.replace(" ", "+"), title)
+    tile_dir, json_filename = create_tiles(portrait_file, pathname, thumbnail_url=thumbnail_url)
 
     # Compose the mosaic
     compose_mosaic(tile_dir, json_filename, portrait_file, image_name)
@@ -328,84 +332,85 @@ def main_no_arg():
     file_cleanup(json_filename, tile_dir)
 
 
-def verify_CLA(*args):
+def verify_CLA():
     """
     Verifies the command line argument(s) given by user.
     """
-
+    arguments = sys.argv[1:]
     valid_ext = ["jpg", "jpeg", "png"]
     try:
         # Argument 1 checks
-        arg_1 = args[0][0]
-        if not os.path.exists(arg_1):
-            sys.exit(f"Could not find {arg_1}.")
-        if os.path.getsize(arg_1) == 0:
-            sys.exit(f"{arg_1} is an invalid file.")
-        if args[1].split(".")[-1] not in valid_ext:
-            sys.exit(f"{arg_1} is an invalid file type.")
+        if not os.path.exists(arguments[0]):
+            sys.exit(f"Could not find {arguments[0]}.")
+        if os.path.getsize(arguments[0]) == 0:
+            sys.exit(f"{arguments[0]} is an invalid file.")
+        if arguments[0].split(".")[-1] not in valid_ext:
+            sys.exit(f"{arguments[0]} is an invalid file type.")
 
         # Argument 2 checks
-        arg_2 = args[0][1]
-        if not os.path.exists(arg_2):
-            sys.exit(f"Could not find {arg_2}.")
-        if len(os.path.exists(arg_2)) == 0:
-            sys.exit(f"There are no files in {arg_2}.")
-    except IndexError:
-        pass
+        if not os.path.exists(arguments[1]):
+            sys.exit(f"Could not find {arguments[1]}.")
+        if len(os.listdir(arguments[1])) == 0:
+            sys.exit(f"There are no files in {arguments[1]}.")
+    except IndexError as e:
+        sys.exit(e)
 
 
-def main_1_arg(portrait):
+def main_1_arg(template_image):
     """
     Runs if 1 command line argument is given.
     """
 
     url = "https://www.wga.hu/cgi-bin/search.cgi?author={}&title=&comment=&time=any&school=any&form=painting&type=any&location=&max=1000&format=5"
 
-    # Get user input, compile and validate url
+    # Get user input, create variables, compile and validate url
     user_input = get_input()
-    name_split = portrait.split(".")
-    image_name = name_split[0]+"_mosaic."+name_split[1]
+    image_name_split = template_image.split(".")
+    image_name = image_name_split[0]+"_mosaic."+image_name_split[1]
     tile_dir = user_input.replace(" ", "_")
     artist_name = user_input.replace(" ", "+")
     url = url.format(user_input)
     validate_url(url)
 
-    # Get pathname for tile directory
-    pathname = os.path.join(os.getcwd(), tile_dir+"_thumbnails")
-
     # Create the tiles
-    tile_url = url.format(user_input.replace(" ", "+"))
-    tile_dir, json_filename = create_tiles(portrait, pathname, tile_url)
+    pathname = os.path.join(os.getcwd(), tile_dir+"_thumbnails")
+    thumbnail_url = url.format(user_input.replace(" ", "+"))
+    tile_dir, json_filename = create_tiles(template_image, pathname, thumbnail_url=thumbnail_url, user_input=user_input)
 
     # Compose the mosaic
-    compose_mosaic(tile_dir, json_filename, portrait, image_name)
+    compose_mosaic(tile_dir, json_filename, template_image, image_name)
 
     # Remove files and directories
     file_cleanup(json_filename, tile_dir)
 
 
-def main_2_arg(portrait, thumbnail_dir):
+def main_2_arg(template_image, image_dir):
     """
     Runs if 2 command line arguments are given.
     """
 
-    name_split = portrait.split(".")
+    name_split = template_image.split(".")
     image_name = name_split[0]+"_mosaic."+name_split[1]
 
     # Create the tiles
-    tile_dir, json_filename = create_tiles(portrait, thumbnail_dir)
+    tile_dir, json_filename = create_tiles(template_image, image_dir)
 
     # Compose the mosaic
-    compose_mosaic(tile_dir, json_filename, portrait, image_name)
+    compose_mosaic(tile_dir, json_filename, template_image, image_name)
 
     # Remove files and directories
     file_cleanup(json_filename, tile_dir)
 
 
 def main():
+    """
+    Depending on if the user inputs 0, 1, or 2 command line arguments,
+    main will run 1 of 3 functions corresponding to that input.
+    """
+
     # Only 0, 1, or 2 Command Line Arguments are valid
     if len(sys.argv) > 3:
-        sys.exit("You must have either 0, 1, or 2 command line arguments.")
+        sys.exit("Too many command line arguments.")
 
     # If no command line args are given
     if len(sys.argv) == 1:
@@ -413,17 +418,16 @@ def main():
         sys.exit()
 
     # Verify user command line arguments
-    arguments = sys.argv[1:]
-    verify_CLA(arguments)
+    verify_CLA()
 
     # If 1 command line arg is given
     if len(sys.argv) == 2:
-        main_1_arg(arguments[0])
+        main_1_arg(sys.argv[1])
         sys.exit()
 
     # If 2 command line args are given
     if len(sys.argv) == 3:
-        main_2_arg(arguments[0], arguments[1])
+        main_2_arg(sys.argv[1], sys.argv[2])
         sys.exit()
 
 
