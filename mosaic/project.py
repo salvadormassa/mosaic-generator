@@ -74,6 +74,8 @@ def download_image(url, pathname=""):
         with open(os.path.join(pathname, filename),'wb') as file:
             shutil.copyfileobj(response.raw, file)
 
+    print(f"{filename} downloaded.")
+
     return filename
 
 
@@ -234,7 +236,6 @@ def compose_mosaic(tile_dir, json_filename, portrait_file, image_name):
     Pastes each tile on best rentangle on a new portrait image.
     """
 
-    print(f"Composing {image_name}")
     # with Image.open(portrait_file).convert("RGB") as im:
     #     copy_filename = "copy_of_"+portrait_file
     #     im1 = im.copy()
@@ -252,7 +253,7 @@ def compose_mosaic(tile_dir, json_filename, portrait_file, image_name):
         # Think of grid where origin is top left on image
         with open(json_filename) as infile:
             tile_data = json.loads(infile.read())
-            for a in range(rows):
+            for a in tqdm(range(rows), desc="Composing"):
                 for b in range(columns):
                     best_match = ""
                     best_match_diff = 10000 # Arbitrary #, will be replaced with first iteration
