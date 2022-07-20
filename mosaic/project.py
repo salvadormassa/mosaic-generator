@@ -21,12 +21,10 @@ from functools import partial
 from PIL import Image
 # Beautiful Soup is a Python library for pulling data out of HTML and XML files.
 from bs4 import BeautifulSoup as bs
-# Adds progress meter to iterations
-from tqdm import tqdm
 
 
 # Value to input into equations to calculate the number of tiles
-tile_num = 20
+tile_percentage_num = .02
 
 def get_input():
     """
@@ -74,8 +72,6 @@ def download_image(url, pathname=""):
         with open(os.path.join(pathname, filename),'wb') as file:
             shutil.copyfileobj(response.raw, file)
 
-    print(f"{filename} downloaded.")
-
     return filename
 
 
@@ -99,8 +95,10 @@ def get_portrait(url, artist):
         sys.exit(f"No portraits found for {artist}.")
 
     portrait_url = f"https://www.wga.hu/art/{self_portrait}"
+    filename = download_image(portrait_url)
+    print(f"Downloaded {filename}")
 
-    return download_image(portrait_url)
+    return filename
 
 
 def get_thumbnail_urls(url, user_input=""):
@@ -127,25 +125,6 @@ def get_thumbnail_urls(url, user_input=""):
         sys.exit(f"No art found for {user_input}.")
 
     return url_list
-
-
-def get_tile_dimensions(portrait):
-    """
-    Using the average thumbnail ratio,
-    Get the tile pixel width and height using the portrait.
-    """
-
-    # which is roughly how many tiles that look good for a mosaic
-    with Image.open(portrait).convert("RGB") as im:
-        # Given a known amount of squares (tile_num),
-        # Find how how many rows and columns in a renctangle
-        ratio = im.height/im.width
-        columns = im.width/tile_num
-        rows = columns*ratio
-        size = round(im.height/rows)
-        size = (size, size)
-
-    return size
 
 
 def create_dict_resize_save_tiles(size, pathname):
@@ -197,17 +176,18 @@ def create_tiles(template_image, pathname, thumbnail_url="", user_input=""):
         except FileExistsError:
             pass
         thumbnail_url_list = get_thumbnail_urls(thumbnail_url, user_input=user_input)
-        iter_list = iter(thumbnail_url_list)
         with Pool(cpu_count()) as p:
             print("Downloading thumbnails...")
             p.map(partial(download_image, pathname=pathname), thumbnail_url_list)
 
     # Derive dimensions from portrait
-    square_size = get_tile_dimensions(template_image)
+    with Image.open(template_image).convert("RGB") as im:
+        size = round(im.width*tile_percentage_num)
+        size = (size, size)
 
     # Creates RGB dictionary from tiles, saves to json file
     # Resizes and save tiles to new directory
-    tile_dir, json_filename = create_dict_resize_save_tiles(square_size, pathname)
+    tile_dir, json_filename = create_dict_resize_save_tiles(size, pathname)
 
     return tile_dir, json_filename
 
@@ -236,25 +216,20 @@ def compose_mosaic(tile_dir, json_filename, portrait_file, image_name):
     Pastes each tile on best rentangle on a new portrait image.
     """
 
-    # with Image.open(portrait_file).convert("RGB") as im:
-    #     copy_filename = "copy_of_"+portrait_file
-    #     im1 = im.copy()
-    #     im1.save(os.path.join(os.getcwd(), copy_filename), "JPEG")
-
     # Calculates how many rows and columns are needed
     with Image.open(portrait_file).convert("RGB") as im:
         ratio = im.height/im.width
-        columns = im.width/tile_num
-        rows = columns*ratio
-        size = round(im.height/rows)
-        rows = round(rows)
-        columns = round(columns)
+        size = round(im.width*tile_percentage_num)
+        tile_size = (round(size))
+        rows = round(im.width/size)
+        columns = round(im.height/size)
 
         # Think of grid where origin is top left on image
         with open(json_filename) as infile:
             tile_data = json.loads(infile.read())
-            for a in tqdm(range(rows), desc="Composing"):
-                for b in range(columns):
+            print("Composing mosaic...")
+            for a in range(columns):
+                for b in range(rows):
                     best_match = ""
                     best_match_diff = 10000 # Arbitrary #, will be replaced with first iteration
                     top = int(size * a)# x
@@ -349,10 +324,11 @@ def verify_CLA():
             sys.exit(f"{arguments[0]} is an invalid file type.")
 
         # Argument 2 checks
-        if not os.path.exists(arguments[1]):
-            sys.exit(f"Could not find {arguments[1]}.")
-        if len(os.listdir(arguments[1])) == 0:
-            sys.exit(f"There are no files in {arguments[1]}.")
+        if len(arguments) > 1:
+            if not os.path.exists(arguments[1]):
+                sys.exit(f"Could not find {arguments[1]}.")
+            if len(os.listdir(arguments[1])) == 0:
+                sys.exit(f"There are no files in {arguments[1]}.")
     except IndexError as e:
         sys.exit(e)
 
@@ -366,8 +342,8 @@ def main_1_arg(template_image):
 
     # Get user input, create variables, compile and validate url
     user_input = get_input()
-    image_name_split = template_image.split(".")
-    image_name = image_name_split[0]+"_mosaic."+image_name_split[1]
+    image_split = template_image.split(".")
+    image_name = image_split[0]+"_mosaic."+image_split[1]
     tile_dir = user_input.replace(" ", "_")
     artist_name = user_input.replace(" ", "+")
     url = url.format(user_input)
@@ -390,8 +366,8 @@ def main_2_arg(template_image, image_dir):
     Runs if 2 command line arguments are given.
     """
 
-    name_split = template_image.split(".")
-    image_name = name_split[0]+"_mosaic."+name_split[1]
+    image_split = template_image.split(".")
+    image_name = image_split[0]+"_mosaic."+image_split[1]
 
     # Create the tiles
     tile_dir, json_filename = create_tiles(template_image, image_dir)
