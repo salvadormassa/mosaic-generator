@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 from PIL import Image
 import os
 import requests
@@ -10,10 +11,10 @@ import sys
 from bs4 import BeautifulSoup as bs
 from urllib.parse import urljoin, urlparse
 from random import choice
-
+# Testing imports
 import pytest
 import mock
-
+# Functions tested
 from project import get_input
 from project import verify_CLA
 from project import get_portrait
@@ -29,25 +30,26 @@ def test_get_input_valid(monkeypatch):
         monkeypatch.setattr('builtins.input', lambda _: next(names))
         assert get_input() == result
 
-def test_verify_CLA(monkeypatch):
+def test_verify_CLA_valid(monkeypatch):
     pathname = os.path.join(os.getcwd(), "test_files/test_images")
     for file in os.listdir(pathname):
-        monkeypatch.setattr('sys.argv', [os.path.join(pathname, file), pathname])
+        file = ["test", os.path.join(pathname, file)]
+        monkeypatch.setattr('sys.argv', file)
         assert verify_CLA() == None
 
 def test_get_portrait_valid(monkeypatch):
     with open("test_files/get_portrait_test_valid.txt") as infile:
         reader = infile.readlines()
         for line in reader:
-            monkeypatch.setattr("project.download_image", lambda _: "Valid")
-            assert get_portrait(line) == "Valid"
+            monkeypatch.setattr("project.download_image", lambda _: "example")
+            assert get_portrait(line, "artist") == "example"
 
 def test_get_portrait_invalid(capsys):
     with open("test_files/get_portrait_test_invalid.txt") as infile:
         reader = infile.readlines()
         for line in reader:
             with pytest.raises(SystemExit):
-                assert get_portrait(line.strip()) == "No portraits found."
+                assert get_portrait(line.strip(), "artist") == "No portraits found."
 
 def test_get_rgb():
     path = os.path.join(os.getcwd(), "test_files/test_tiles")

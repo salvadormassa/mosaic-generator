@@ -8,7 +8,7 @@ import shutil
 import json
 import re
 import sys
-import time
+from datetime import datetime
 from random import choice
 from requests.exceptions import HTTPError
 from urllib.parse import urljoin, urlparse
@@ -192,6 +192,15 @@ def create_tiles(template_image, pathname, thumbnail_url="", user_input=""):
     return tile_dir, json_filename
 
 
+def pixel_rgb(pixel):
+    r, g, b = 0, 0, 0
+    r += pixel[0]
+    g += pixel[1]
+    b += pixel[2]
+    average_rgb = [int(r/pixels), int(g/pixels), int(b/pixels)]
+    return average_rgb
+
+
 def get_rgb(img_object):
     """
     Generates 3 numerical values (red, green, blue)
@@ -208,19 +217,59 @@ def get_rgb(img_object):
     average_rgb = [int(r/pixels), int(g/pixels), int(b/pixels)]
     return average_rgb
 
-
-def compose_mosaic(tile_dir, json_filename, portrait_file, image_name):
+def crop_mosaic_get_rgb(size, column, row, image):
     """
-    Breaks portrait into roughly 1000 rectangles.
-    Uses json file to find best suited tile for each rectangle.
-    Pastes each tile on best rentangle on a new portrait image.
+    Crops a tile out of the mosaic and extracts the RGB value.
+    """
+
+    # Crop coordinatees
+    top = int(size * column)# x
+    left = int(size * row) # y
+    bottom = int(size * (column + 1)) # x
+    right = int(size * (row + 1)) # y
+    coordinates = (left, top, right, bottom)
+
+    # Getting RGB from cropped image tile
+    im1 = image.crop(coordinates)
+    portrait_rgb = get_rgb(im1)
+    portrait_rgb = portrait_rgb[0]+portrait_rgb[1]+portrait_rgb[2]
+
+    return portrait_rgb, coordinates
+
+def find_best_match(tile_dir, tile_data, portrait_rgb, im, coordinates):
+    """
+    Searches tile json data for closes rgb match to mosaic tile.
+    """
+
+    best_match = ""
+    best_match_diff = 10000 # Arbitrary #, will be replaced with first iteration
+
+    for tile in tile_data:
+        tile_rgb = tile_data[tile][0]+tile_data[tile][1]+tile_data[tile][2]
+        if tile_rgb > portrait_rgb:
+            diff = tile_rgb - portrait_rgb
+        else:
+            diff = portrait_rgb - tile_rgb
+
+        if diff < best_match_diff:
+            best_match_diff = diff
+            best_match = tile
+
+    paste_path = os.path.join(tile_dir, best_match)
+    with Image.open(paste_path).convert("RGB") as paste_image:
+        im.paste(paste_image, coordinates)
+
+
+def compose_mosaic(tile_dir, json_filename, template_file, image_name):
+    """
+    Breaks portrait into small square tiles.
+    Uses json file to find best suited match for each tile.
+    Pastes the best match onto the mosaic image.
     """
 
     # Calculates how many rows and columns are needed
-    with Image.open(portrait_file).convert("RGB") as im:
-        ratio = im.height/im.width
+    with Image.open(template_file).convert("RGB") as im:
         size = round(im.width*tile_percentage_num)
-        tile_size = (round(size))
         rows = round(im.width/size)
         columns = round(im.height/size)
 
@@ -230,40 +279,18 @@ def compose_mosaic(tile_dir, json_filename, portrait_file, image_name):
             print("Composing mosaic...")
             for a in range(columns):
                 for b in range(rows):
-                    best_match = ""
-                    best_match_diff = 10000 # Arbitrary #, will be replaced with first iteration
-                    top = int(size * a)# x
-                    left = int(size * b) # y
-                    bottom = int(size * (a + 1)) # x
-                    right = int(size * (b + 1)) # y
+                    # Obtain cropped image tile RGB
+                    portrait_rgb, coordinates = crop_mosaic_get_rgb(size, a, b, im)
 
-                    coordinates = (left, top, right, bottom)
-                    im1 = im.crop(coordinates)
-                    portrait_rgb = get_rgb(im1)
-                    portrait_rgb = portrait_rgb[0]+portrait_rgb[1]+portrait_rgb[2]
-
-                    # Iterate through tile_data and compare to portrait
-                    # Which ever number is closest wins
-                    for i in tile_data:
-                        tile_rgb = tile_data[i][0]+tile_data[i][1]+tile_data[i][2]
-                        if tile_rgb > portrait_rgb:
-                            diff = tile_rgb - portrait_rgb
-                        else:
-                            diff = portrait_rgb - tile_rgb
-
-                        if diff < best_match_diff:
-                            best_match_diff = diff
-                            best_match = i
-
-                    paste_path = os.path.join(tile_dir, best_match)
-                    with Image.open(paste_path).convert("RGB") as paste_image:
-                        im.paste(paste_image, coordinates)
+                    # Find the best tile match and paste to mosaic
+                    find_best_match(tile_dir, tile_data, portrait_rgb, im, coordinates)
 
         im_loc = os.path.join(os.getcwd()+"/mosaics", image_name+".jpg")
         im.save(im_loc, "JPEG")
-        with Image.open(portrait_file).convert("RGB") as original:
-            original.show(portrait_file)
+        with Image.open(template_file).convert("RGB") as original:
+            original.show(template_file)
         im.show(im_loc)
+
 
 def file_cleanup(json_filename, tile_dir=""):
     """
@@ -307,6 +334,8 @@ def main_no_arg():
     # Remove files and directories
     file_cleanup(json_filename, tile_dir)
 
+    return(user_input)
+
 
 def verify_CLA():
     """
@@ -321,6 +350,7 @@ def verify_CLA():
         if os.path.getsize(arguments[0]) == 0:
             sys.exit(f"{arguments[0]} is an invalid file.")
         if arguments[0].split(".")[-1] not in valid_ext:
+            print(arguments[0].split(".")[-1])
             sys.exit(f"{arguments[0]} is an invalid file type.")
 
         # Argument 2 checks
@@ -360,6 +390,8 @@ def main_1_arg(template_image):
     # Remove files and directories
     file_cleanup(json_filename, tile_dir)
 
+    return(user_input)
+
 
 def main_2_arg(template_image, image_dir):
     """
@@ -379,6 +411,43 @@ def main_2_arg(template_image, image_dir):
     file_cleanup(json_filename, tile_dir)
 
 
+def disk_usage():
+    """
+    Checks size of directory/subdirectories after program runs.
+    If over 1 GB, prints a message on the console.
+    """
+
+    file_size = str(subprocess.check_output(["du",  "-s"]))
+    file_size = int(re.findall(r"\d+", file_size)[0])/1000/1000
+    if file_size >= 1:
+        print("This directory is over 1 GB.")
+
+
+def logging(data=""):
+    """
+    Creates log.txt if none exists.
+    Logs data/time, command line args, and any user input.
+    """
+
+    if not os.path.exists("log.txt"):
+        subprocess.run(["touch", "log.txt"])
+
+    date_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+    subprocess.run(f"echo {date_time} >> log.txt", shell=True)
+
+    if len(sys.argv) > 1:
+        string = f"Command line arguments: '{sys.argv[1:][0]}'"
+        subprocess.run(f"echo {string} >> log.txt", shell=True)
+
+    if data:
+        string = f"User input: '{data}'"
+        subprocess.run(f"echo {string} >> log.txt", shell=True)
+
+    subprocess.run(f"echo ------------------------------------ >> log.txt", shell=True)
+
+
+
 def main():
     """
     Depending on if the user inputs 0, 1, or 2 command line arguments,
@@ -391,23 +460,26 @@ def main():
 
     # If no command line args are given
     if len(sys.argv) == 1:
-        main_no_arg()
-        sys.exit()
+        user_input = main_no_arg()
 
     # Verify user command line arguments
-    verify_CLA()
+    if len(sys.argv) > 1:
+        verify_CLA()
 
-    # If 1 command line arg is given
-    if len(sys.argv) == 2:
-        main_1_arg(sys.argv[1])
-        sys.exit()
+        # If 1 command line arg is given
+        if len(sys.argv) == 2:
+            user_input = main_1_arg(sys.argv[1])
 
-    # If 2 command line args are given
-    if len(sys.argv) == 3:
-        main_2_arg(sys.argv[1], sys.argv[2])
-        sys.exit()
+        # If 2 command line args are given
+        if len(sys.argv) == 3:
+            main_2_arg(sys.argv[1], sys.argv[2])
+
+    # Disk usage, logging, and exit
+    disk_usage()
+    if 'user_input' in locals():
+        logging(user_input)
+    sys.exit()
 
 
 if __name__ == "__main__":
-    # @profile
     main()
