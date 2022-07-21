@@ -1,6 +1,7 @@
 # Mosaic Generator
+## Educational Purposes Only
+This is a program was created for a Network Security and Automation bootcamp. It is intended for educational purposes only.
 ## Overview
-
 This script creates a mosiac of an image using smaller images (tiles). It can accept 1 or 2 additional command line arguments.<br />
 - If no arguments are given, the script will ask for user input for a painter. It will attempt to find a self-portrait of the painter to be made into a mosaic,
 and also find the art from that painter to compose the mosaic.<br />
