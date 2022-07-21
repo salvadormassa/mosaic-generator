@@ -31,8 +31,8 @@ the mosaic.<br /><br />
 After researching this particular problem, my solution was just to avoid it. As that would be a worthy enough problem for a project on its own. 
 Therefore, after downloading the required thumbnails, the program turns them into squares which I call *tiles* of equal size.  
 ### Breaking the Image into Components  
-The next challenge was how to cut up the image that was going to be used for the mosaic template into individual pieces,  
-that can be compared to the tiles. The challenge was for the program to be able to take images of various dimensions,  
+The next challenge was how to cut up the image that was going to be used for the mosaic template into individual pieces,
+that can be compared to the tiles. The challenge was for the program to be able to take images of various dimensions,
 and split them up, relatively, into a certain amount of tiles. This, like the packing problem, was harder than I anticipated.<br /><br />
 The math involved here was a bit more than I would have hoped, and in the end I had to used a magic number approach. After running the program 
 a few times and finding the "best" looking square density. I was able to find the best number of tiles per length/width, relatively speaking. 
